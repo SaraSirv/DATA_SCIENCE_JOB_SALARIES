@@ -1,0 +1,512 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+
+# Seminario Data Science R
+## Caso churn modelling (EDA, inferencia y GLM)
+### Juan Manuel Moreno 
+
+Tomando el siguiente archivo csv **Churn_Modelling.csv** con información de una entidad bancaria, se realizará un análisis predictivo (a través de un GLM) para evitar el abandono del cliente de la entidad bancaria o, *Customer churn prediction*, es decir, intentaremos predecir cuando un cliente va a cerrar su cuenta. El dataset origintal puede descargarse y consultarse a través del siguiente enlace: https://www.kaggle.com/shrutimechlearn/churn-modelling
+
+El dataset está compuesto por 10000 filas y 14 variables sobre las que disponemos de la siguiente información:
+
+* RowNumber: Numérico. Número de fila.
+* CustomerId: Numérico. ID del cliente en la entidad bancaria.
+* Surname: Categórica con 2932 niveles. Apellido del cliente.
+* CreditScore: Numérica. Puntuación de credit score, la calidad de la puntuación de un credit score es la siguiente:
+  + Malo: Menos de 550 puntos.
+  + Regular: 551 a 649 puntos.
+  + Bueno: 700 a 749 puntos.
+  + Excelente: 750 en adelante.
+* Geography: Categórica con 3 niveles. País del cliente.
+* Gender: Categórica de 2 niveles. Sexo del cliente.
+* Age: Numérica, edad del cliente.
+* Tenure: Numérica, número de años que lleva el cliente en el banco.
+* Balance: Numérica, cuenta corriente del cliente. 
+* NumOfProducts: Numérica, número de productos que utiliza el cliente en el banco.
+* HasCrCard: Numérica binaria, tenencia (0) o no tenencia de tarjeta de crédito (1).
+* IsActiveMember: Numérica binaria, indica si el cliente es activo (0) en su cuenta bancaria o no (1).
+* EstimatedSalary: Numérica, salario estimado que puede tener el cliente en dólares.
+* Exited: Numérica binaria. Variable objetivo, si el cliente cierra su cuenta 1 y 0 si el cliente mantiene su cuenta. 
+
+Teniendo la siguiente información se pide realizar:
+
+1. Carga el archivo csv como un dataframe.
+2. Obtén un resumen estadístico y estructura del dataframe.
+3. Elimina las variables RowNumber, CustomerID y Surname.
+4. Recodifica las siguientes varaibles binarias a categóricas con los siguintes factores o niveles:
+  + HascrCard. 0: 'SI_CREDIT_CARD', 1: 'NO_CREDIT_CARD'.
+  + IsActiveMember 0: 'SI_ACTIVO', 1: 'NO_ACTIVO'.
+5. Examina si el dataset tiene valores nulos.
+6. Realiza un EDA:
+  + Gráfica en función de si es variable numérica o categórica.
+  + Gráfica de cada variable contra la variable objetivo.
+  + Test de normalidad para las variables numéricas.
+  + Matriz de correlación para las variables numéricas.
+  + Test de independencia de las variables categóricas contra la variable objetivo.
+7. Discretiza la variable CreditScore, creando la variable QualityCredit utilizando como límites y nombres para cada valor los valores de calidad de un creditScore.
+8. Como consecuencia del apartado 6 se habrá obtenido una selección de variables *manual*, contrasta estos resultados realizando un modelo de selección de variables basado en stepAIC.
+9. Con el conjunto de variables del modelo basado en stepAIC, realiza una división de las primeras 7000 filas para train y las 3000 restantes para test.
+10. Crea un modelo de clasificación basado en **GLM**.
+11. Realiza las predicciones sobre el conjunto de test y da las métricas de la matriz de confusión ¿qué accuracy tiene el modelo generado?.
+
+Primero y, como buena práctica, mostramos en la primera celda todas las librerías que emplearemos
+```{r, warning=FALSE, echo=FALSE}
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(corrplot)
+library(MASS)
+library(fastDummies)
+```
+
+# **1**
+```{r}
+# 1. Carga el archivo csv como un dataframe.
+df <- read.csv("Churn_Modelling.csv", stringsAsFactors = T)
+```
+
+# **2**
+```{r}
+# 2. Obtén un resumen estadístico y estructura del dataframe.
+summary(df)
+```
+
+Observamos que las columnas RowNumber y CustomerId, no tienen ningún aporte para nuestro análisis, no obstante, en un proyecto real, deberíamos considerar el id del cliente a la hora de predecir, pero no para entrenar. La variable Surname, al menos en este tipo de análisis no es interesante, ya que no estamos tratando como tal cadenas de texto. Por lo que, estas tres variables serán eliminadas. 
+
+Las variables binarias, HasCrCard y IsActiveMember podrían ser tratadas de forma diferente ya que tiene más sentido recodificarlas a categórica, incluso, en futuros análisis, también podría recodificarase la varaible NumOfProducts a categórica, por el momento, no conocemos los productos para profundizar en su análisis, por lo que la dejaremos como numérica. 
+
+```{r}
+str(df)
+```
+
+# **3**
+Eliminamos las variables asignándoles NULL, es decir, no utilizamos ningún tipo de función especial.
+```{r}
+# 3. Elimina las variables RowNumber, CustomerID y Surname.
+df$RowNumber <- NULL
+df$CustomerId <- NULL
+df$Surname <- NULL
+```
+# **4**
+
+Modificamos las variables categóricas haciendo uso de la función **`recode`**, es importante que previamente las transformemos en tipo carácter, para reconocerl el valor del factor correctamente.
+```{r}
+# 4. Recodifica las siguientes varaibles binarias a categóricas con los siguintes factores o niveles:
+#   + HascrCard. 0: 'SI_CREDIT_CARD', 1: 'NO_CREDIT_CARD'.
+#   + IsActiveMember 0: 'SI_ACTIVO', 1: 'NO_ACTIVO'.
+
+df$HasCrCard <- recode(as.character(df$HasCrCard),
+                               "0" = "SI_CREDIT_CARD",
+                               "1" = "NO_CREDIT_CARD") %>% as.factor
+
+df$IsActiveMember <- recode(as.character(df$IsActiveMember),
+                               "0" = "SI_ACTIVO",
+                               "1" = "NO_ACTIVO") %>% as.factor
+```
+
+Antendemos al nuevo resumen estadístico
+```{r}
+summary(df)
+```
+
+Mostramos los valores únicos de ambas variables (También podría utilizarse la funcón levels)
+```{r}
+unique(df$HasCrCard)
+unique(df$IsActiveMember)
+```
+
+Inspeccionamos la cantidad de clientes con tarjeta de crédito.
+```{r}
+table(df$HasCrCard)
+```
+
+Inspeccionamos la cantidad de clientes activos en el banco.
+```{r}
+table(df$IsActiveMember)
+```
+
+# **5**
+```{r}
+# 5. Examina si el dataset tiene valores nulos.
+sapply(df, function(x) sum(is.na(x)))
+```
+
+# **6**
+```{r}
+# 6. Realiza un EDA:
+#   + Gráfica en función de si es variable numérica o categórica.
+#   + Gráfica de cada variable contra la variable objetivo.
+#   + Test de normalidad para las variables numéricas.
+#   + Matriz de correlación para las variables numéricas.
+#   + Test de independencia de las variables categóricas contra la variable objetivo.
+```
+
+### Gráfica en función de si es variable numérica o categórica.
+
+Comenzaremos implementando un bucle for en el que mostremos un tipo de gráfica diferente para cada variable, en donde las variables numéricas serán histogramas para poder estudiar su distribución, y las variables categóricas serán diagramas de barras para ver sus proporciones y frecuencias.
+
+```{r}
+for (columna in 1:ncol(df)){
+  if (class(df[,columna]) == "factor"){
+    # Por defecto se mostrará un gráfico de barras.
+    plot(df[,columna], 
+         col = topo.colors(length(levels(df[,columna]))),
+         las = 1,
+         main = paste("Diagrama de barras de: ", colnames(df[columna])))
+  } else {
+    # Para las variables numéricas, histograma.
+    hist(df[, columna], 
+         border = "blue", 
+         col = "tomato", 
+         las = 1, 
+         main = paste("Histograma de: ", colnames(df[columna])),
+         xlab  = colnames(df[columna]))
+  }
+}
+
+```
+
+Algunas observaciones sobre las gráficas individuales:
+
+* **CreditScore**: Por lo general, se concentran en valores de calidad Regular y Bueno, algo habitual en una entidad bancaria.
+* **Geography**: Vemos que la gran mayoría de los clientes son de Francia y de forma muy similar los clientes de Alemania y España.
+* **Gender**: Se observa que el número de clientes de sexo hombre es ligeramente superior al de clientes con sexo mujer.
+* **Age**: La mayor concentración de clientes se sitúa entre los 25 y los 45 años reduciendo de forma drástica a partir de ese dato, por lo general, los clientes de esta entidad bancaria son jovenes.
+* **Tenure**: En función de la estructura de esta variable se puede extrapolar que uBna posible modificaciónde la misma sería su discretización. Respecto al análisis de sus valores numéricos, salvo por clientes que aún no han cumplido el primer año de antiguedad y los que han cumplido 10 años, el resto de valores se reparten de una forma muy simétrica.
+* **Balance**: Se ovserva que una gran cantidad de clientes, casi 4000 clientes, no tienen ningún tipo de balance o lo que es lo mismo, no tiene ningún disponible en su cuenta, sería interesante comprobar si estos clientes concuerdan con los clientes no activos de la variable "IsActiveMember".
+
+```{r}
+plot(df$IsActiveMember, df$Balance, 
+     col = heat.colors(length(levels(df$IsActiveMember))),
+     main = "Distribución de la actividad del cliente por su balance",
+     las = 1)
+```
+
+Concluimos con que los clientes no activos no tienen porqué tener estrictamente 0 $ en su cuenta.
+
+* **NumOfProducts**: Una variable que para futuros análisis podría discretizarse, respecto a su valor numérico, por lo general, los clientes tendrán entre 1 y 2 productos.
+* **HasCrCard**: Claramente prevalecen clientes que no tienen tarjeta de crédito.
+* **IsActiveMember**: Prácticamente simétrica, pero como hemos visto anteriormente analizando su frecuencia, hay más clientes que no son activos de los que si son activos.
+* **EstimatedSalary**: Una variable que no muestra grandes diferencias pese a los diferentes rangos salariales, será interesante analizar junto con la edad.
+
+```{r}
+plot(df$Age, df$EstimatedSalary, col = "darkblue", main = "Salario ~ Edad", xlab = "Edad", ylab = "Salario")
+```
+
+No se observa ninguna gran diferencia, simplemente se va reduciendo el número de clientes del banco del mismo modo explicado previamente con la variable edad.
+
+* **Exited**: Al realizar un bucle for para todas las variables, se muestra el histograma de la variable objetivo que al tener solamente dos valores no es interesante estudiarlo como un histograma si no, como un diagrama de barras (una buena manera de evitar esto, habría sido reducir el número de columnas -1, ya que sabemos que la variable objetivo ocupa la última posición).
+
+```{r}
+plot(as.factor(df$Exited), 
+     col = c("blue", "red"), 
+     names.arg = c("Cliente retiene", "Cliente abandona"),
+     main = "Retención de clientes")
+```
+
+Vemos que hay casi ocho mil clientes que mantienen la cuenta y más de dos mil que abandondan la entidad bancaria, para conocer los valores exactos, mostraremos las frecuencias de la variable objetivo.
+
+```{r}
+table(df$Exited)
+```
+
+### Gráfica de cada variable contra la variable objetivo.
+
+En este caso, mostraremos una forma diferente, aprovechando el código anterior, implementaremos una función que reciba dos parámetros, el dataframe y el nombre de la variable objetivo.
+
+```{r, warning=FALSE}
+explain.target <- function(dataframe.object, target.feature){
+  
+  for (columna in 1:ncol(dataframe.object)){
+    
+    if (names(dataframe.object[columna]) == "Exited"){
+      next
+      
+    } else {
+      if (class(dataframe.object[, columna]) == "factor"){
+        plot <- ggplot(dataframe.object) + 
+          geom_bar(aes(dataframe.object[, columna], fill = as.factor(target.feature))) + 
+          labs(title=paste(names(dataframe.object[columna]), " ~ Exited")) + 
+          xlab(names(dataframe.object[columna])) + 
+          ylab("Frecuencia") +
+          scale_fill_discrete(name="Mantiene Cliente", breaks=c("0", "1"),
+                           labels=c("SI", "NO"))
+      
+      } else {
+        plot <- ggplot(dataframe.object) + 
+          geom_boxplot(aes(dataframe.object[, columna], fill = as.factor(target.feature))) + 
+          coord_flip() +
+          labs(title=paste(names(dataframe.object[columna]), " ~ Exited")) + 
+          xlab(names(dataframe.object[columna])) + 
+          scale_fill_discrete(name="Mantiene Cliente", breaks=c("0", "1"),
+                           labels=c("SI", "NO"))
+      }
+      plot <- print(plot)
+    }
+  }
+}
+
+explain.target(dataframe.object = df, target.feature = df$Exited)
+```
+
+En líneas generales, podemos encontrarnos dos categorías princiaples respecto a las gráficas obtenidas anteriormente:
+
+* Gráficas de barras en donde siempre hay más clientes que permanecen en el banco.
+* Boxplot en donde hay igualdad tando si los clientes abandonan la entidad bancaria, como si permanecen en la misma, no obstante, puede extrapolarse que existe una tendencia, y es que, a mayor edad, mayor probabilidad de abandonar la entidad bancaria.
+
+### Test de normalidad para las variables numéricas.
+
+```{r, warning=F}
+numeric.values <- df %>% dplyr::select(CreditScore, Age, Tenure, Balance, NumOfProducts, EstimatedSalary)
+
+sapply(sample_n(numeric.values, 5000), function(x) round(shapiro.test(x)$p.value,2))
+```
+
+Vemos que ninguna de las variables numéricas proviene de una distribución normal.
+
+### Matriz de correlación para las variables numéricas.
+
+```{r}
+corrplot(cor(numeric.values), method = "number", type="upper")
+```
+
+Observamos la influencia negativa en función de que: A más productos menos balance en la cuenta del cliente.
+
+```{r}
+plot(df$Balance, df$NumOfProducts, las = 1)
+```
+
+
+### Test de independencia de las variables categóricas contra la variable objetivo.
+
+```{r}
+categorical.features <- df %>% dplyr::select(Geography, Gender, HasCrCard, IsActiveMember) 
+
+sapply(categorical.features, function(x) round(chisq.test(table(x, df$Exited))$p.value,2))
+```
+
+Lo que nos sugiere el test de independencia es que las variables Geography, Gender, IsActiveMember son dependientes y que HasCrCard es independiente.
+
+### Conclusiones sobre el EDA.
+
+Tras realizar el **análisis exploratorio de datos**, podemos concluir de forma resumida con lo siguiente:
+
+* Las variables numéricas deben **normalizarse**.
+* El único índice de correlación destacable es Balance ~ NumOfProducts de -0.30, no se considera lo suficientemente alto como para eliminar ninguna variable.
+* Sobre los test de independencia, se debería borrar la variable **HasCrCard** (Esperaremos a realizar un modelo de selección de variables).
+
+# **7**
+```{r}
+# 7. Discretiza la variable CreditScore, creando la variable QualityCredit utilizando como límites y nombres para cada valor los valores
+
+# Obtenemos una variable categórica con los límites.
+
+discretize.cr <- cut(df$CreditScore, breaks = c(min(df$CreditScore-1), 
+                               550, 
+                               650, 
+                               750, 
+                               max(df$CreditScore+1)))
+
+discretize.cr[0: 10]
+```
+
+```{r}
+plot(discretize.cr)
+```
+
+Tenemos los siguiente niveles (350,550] (550,650] (650,750] (750,850], por lo tanto, si realizamos la conversión, debemos tener en cuenta la valoración categórica de cada CreditScore:
+
+* (350,550] -> **MALO**
+* (550,650] -> **REGULAR**
+* (650,750] -> **BUENO**
+* (750,850] -> **EXCELENTE**
+
+Reconvertimos los valores y creamos la variable QualityCredit
+
+```{r}
+df$QualityCredit <- recode(as.character(discretize.cr),
+                               "(349,550]" = "MALO",
+                               "(550,650]" = "REGULAR",
+                               "(650,750]" = "BUENO",
+                               "(750,851]" = "EXCELENTE") %>% as.factor
+```
+
+```{r}
+levels(df$QualityCredit)
+```
+
+```{r}
+table(df$QualityCredit)
+```
+
+```{r}
+plot(df$QualityCredit, main="Calidad del Credit Score", col = topo.colors(length(levels(df$QualityCredit))),
+     border = "blue", las = 1)
+``` 
+
+Observamos si es una variable dependiente o independiente.
+
+```{r}
+chisq.test(table(df$QualityCredit, df$Exited))
+```
+
+El p-value es menor que 0.05, por lo tanto, tomamos la hipótesis alternativa, son variables dependientes y, por lo tanto, en nuestras conclusiones sobre el EDA, debería permanecer en el modelo.
+
+# **8**
+```{r}
+# 8. Como consecuencia del apartado 6 se habrá obtenido una selección de variables *manual*, contrasta estos resultados realizando un modelo de selección de variables basado en stepAIC.
+```
+
+Primero, normalizamos las variables.
+
+```{r}
+df$CreditScore <- scale(df$CreditScore)
+df$Age <- scale(df$Age)
+df$Tenure <- scale(df$Tenure)
+df$Balance <- scale(df$Balance) 
+df$NumOfProducts <- scale(df$NumOfProducts)
+df$EstimatedSalary <- scale(df$EstimatedSalary)
+```
+
+Siguiendo con las transformaciones previas, dado que nuestro dataset tiene variables categóricas, debemos tratarlas como dummies en un modelo de clasificación, por lo tanto, definiremos un nuevo dataframe con variables dummies.
+
+```{r, warning=FALSE, echo=FALSE}
+df <- dummy_cols(df, remove_selected_columns = T)
+```
+
+```{r}
+colnames(df)
+```
+```{r}
+head(df)
+```
+
+Las conclusiones se han expuesto sobre los apartados 6 y 7. Realizamos el modelo de selección de variables. Realizaremos un modelo basado en stepAIC, por lo tanto, debemos definir el modelo mínimo y máximo, en donde, el modelo mínimo será la variable objetivo (Exited) contra sí mismo y, el valor máximo, la variable objetivo contra todas las variables.
+
+```{r}
+fit1 <- glm(Exited~., data=df, family=binomial)
+fit0 <- glm(Exited~1, data=df, family=binomial)
+```
+
+Implementamos el modelo de selección de variables.
+
+```{r}
+step <- stepAIC(fit0,direction="both",scope=list(upper=fit1,lower=fit0))
+```
+
+Observamos cuáles son las variables escogidas por el modelo de selección de variables.
+
+```{r}
+step$formula
+```
+
+NOTA: Es siempre importante comparar las métricas obtenidas por un modelo de variables seleccionadas con, las métricas obtenidas con un modelo que tenga todas las variables.
+
+# **9**
+```{r}
+# 9. Con el conjunto de variables del modelo basado en stepAIC, realiza una división de las primeras 7000 filas para train y las 3000 restantes para test.
+```
+
+Seleccionamos únicamente las variables que nos arroja el modelo stepAIC
+```{r}
+# Variables stepAIC
+feature.select <- df %>% dplyr::select(Exited, Age, IsActiveMember_NO_ACTIVO , Geography_Germany,
+                                Gender_Female, Balance, CreditScore, NumOfProducts, Tenure)
+```
+
+Definimos los conuntos X e Y
+
+```{r}
+# X e Y
+X <- feature.select %>% dplyr::select(-Exited)
+Y <- feature.select$Exited
+```
+
+Obtenemos los conjuntos train y test
+
+```{r}
+# TRAIN
+X_Train <- X[0:7000, ]
+Y_Train <- Y[0:7000]
+
+# TEST
+X_Test <- X[7001:nrow(X), ]
+Y_Test <- Y[7001:length(Y)]
+```
+
+
+```{r}
+# Otras formas
+# X <- feature.select
+# 
+# X_Train_ <- X[0:7000, ]
+# X_Test_ <- X[7001:nrow(X), ]
+# 
+# # Variables categóricas y numéricas
+# X_train_mmatrix <- model.matrix(Exited~.-1, X_Train_)
+# y_train_mmatrix <- X_Train_$Exited
+# 
+# X_test_mmatrix <- model.matrix(Exited~.-1, X_Test_)
+# y_test_mmatrix <- X_Test_$Exited
+
+# Variables numéricas. Utilizar data.matrix o as.matrix directamente desde el dataframe.
+```
+
+
+# **10**
+```{r}
+# 10. Crea un modelo de clasificación basado en **GLM**.
+
+mod <- glm(Y_Train~., data = X_Train, family = binomial)
+```
+
+```{r}
+summary(mod)
+```
+
+Evidentemente, casi todos los coeficientes son de alta importancia, ya que hemos seleccionado las variables más influyentes para el modelo.
+
+# **11**
+```{r}
+# 11. Realiza las predicciones sobre el conjunto de test y da las métricas de la matriz de confusión ¿qué accuracy tiene el modelo generado?.
+
+Y_Pred <- as.numeric(predict(mod, newdata=X_Test, type="response")>.5)
+
+head(Y_Pred)
+```
+```{r}
+confusionMatrix(as.factor(Y_Test), as.factor(Y_Pred), mode="everything", positive = "0")
+```
+
+Comparamos resultados contra todo el modelo sin filtrar variables.
+```{r}
+# X e Y
+X <- df %>% dplyr::select(-Exited)
+Y <- df$Exited
+
+# TRAIN
+X_Train <- X[0:7000, ]
+Y_Train <- Y[0:7000]
+
+# TEST
+X_Test <- X[7001:nrow(X), ]
+Y_Test <- Y[7001:length(Y)]
+
+# 10. Crea un modelo de clasificación basado en **GLM**.
+
+mod <- glm(Y_Train~., data = X_Train, family = binomial)
+
+summary(mod)
+
+Y_Pred <- as.numeric(predict(mod, newdata=X_Test, type="response")>.5)
+
+head(Y_Pred)
+
+confusionMatrix(as.factor(Y_Test), as.factor(Y_Pred), mode="everything", positive = "0")
+```
+
+Vemos que los resultados empeoran pero por muy poco, por lo tanto, es ligeramente superior el modelo con las variables filtradas. 

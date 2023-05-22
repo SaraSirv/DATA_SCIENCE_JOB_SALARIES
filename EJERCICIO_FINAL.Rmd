@@ -1,0 +1,389 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+  EJERCICO FINAL MODULO 5 . 
+  
+## Sara Sirviente
+### DATA SCIENCE JOB SALARIES
+El objetivo de este ejercico es analizar y evaluar el salario de un científico de datos en los últimos 3 años.
+
+El conjunto de datos que se escoge para este ejercicio se obntiene a partir de Kaggle (https://www.kaggle.com/datasets/ruchi798/data-science-job-salaries). E
+
+El dataset proviene de los resultados de la agregación de datos por ai-jobs.net ( plataforma que ofrece a los solicitantes aplicar a trabajos de AI/ML y Big Data en todo el mundo). Se obtuvo de proporcionar formularios a todos los que tienen trabajos de AI/ML y Big Data para completar los datos salariales de manera transparente. 
+
+**El Dataset contiene 11 columnas y 608 filas.
+
+*work_year = El año en que se pagó el salario.
+*experience_level = El nivel de experiencia en el trabajo durante el año con los siguientes valores posibles.
+         ES = Nivel de entrada / Junior
+         MI = Nivel medio / Intermedio
+         SE = Nivel superior / Experto
+         EX = Nivel ejecutivo / Director
+*empleo_tipo = El tipo de empleo para el rol.
+         PT = Tiempo parcial
+         FT = tiempo completo
+         CT = Contrato
+         FL = Independiente
+*job_title = El rol en el que trabajó durante el año.
+*salario = cuantía total del salario bruto pagado.
+*salario_currency = La moneda del salario pagado como código de moneda ISO 4217.
+*salario_in_usd = El salario en USD (tasa de cambio dividida por la tasa promedio de USD para el año respectivo a través de fxdata.foorilla.com).
+*employee_residence = País principal de residencia del empleado durante el año laboral como código de país ISO 3166.
+*remote_ratio = La cantidad total de trabajo realizado de forma remota, los valores posibles son los siguientes.
+         0 = Sin trabajo remoto (menos del 20%)
+         50 = Parcialmente remoto
+         100 = Totalmente remoto (más del 80 %)
+*company_location = El país de la oficina principal del empleador o sucursal contratante como un código de país ISO 3166.
+*company_size = Número promedio de personas que trabajaron para la empresa durante el año
+         S = menos de 50 empleados (pequeño)
+         M = 50 a 250 empleados (medio)
+         L = más de 250 empleados (grande)
+
+
+
+
+Primero cargamos las librerías que usaremos:
+```{r}
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(corrplot)
+library(MASS)
+library(fastDummies)
+```
+```{r}
+#cargamos el archivo
+df <- read.csv("ds_salaries.csv", stringsAsFactors = T)
+head(df,5)
+
+```
+```{r}
+summary (df)
+```
+Queremos analizar el salario de un data science por ello podemos quedarnos unicamente con el salario en USD, por lo que eliminamos el tipo de moneda. el ratio  y el salario pagado. También vamos a quitar la columna 1, que solo enumera las filas, ya que no aporta ningún tipo de información
+```{r}
+df$salary <- NULL
+df$salary_currency<- NULL
+df$X<- NULL
+df$remote_ratio<- NULL
+
+summary(df)
+```
+Se ve si existen nulos (nan values)
+```{r}
+sapply(df, function(x) sum(is.na(x)))
+```
+ No hay ningun valor nulo, estupendo. Porcedemos a realizar un EDA
+```{r}
+str(df)
+```
+vemos que hay variables categóricas y numéricas, llama la atención que hay 50 niveles de tipos de trabajo y 57 paises. Esto sugiere que se podría agrupar por trabajos parecidos ( Analistas de datos, ingenieros, ML,etc), por continentes, etc. De momento vamos a observar los valores unicos y el numero de individuos de los tipos de empleo.
+```{r}
+unique(df$job_title)
+table(df$job_title)
+```
+una vez se ha realizado el análisis exploratorio de los datos, se procede a aplicar un analisis estadistico para sacar conclusiones del dataset. Vamos a realizar primero unanalisis cualitativo dónde representaremos todas las variabes. Si son categoricas; diagrama de barras y si son numericas; histograma
+```{r}
+for (columna in 1:ncol(df)){
+  if (class(df[,columna]) == "factor"){
+    # Por defecto se mostrará un gráfico de barras.
+    plot(df[,columna], 
+         col = topo.colors(length(levels(df[,columna]))),
+         las = 1,
+         main = paste("Diagrama de barras de: ", colnames(df[columna])))
+  } else {
+    # Para las variables numéricas, histograma.
+    hist(df[, columna], 
+         border = "blue", 
+         col = "tomato", 
+         las = 1, 
+         main = paste("Histograma de: ", colnames(df[columna])),
+         xlab  = colnames(df[columna]))
+  }
+}
+
+```
+ A partir de estas visualizaciones podemos empezar a sacar resultados preliminares:
+
+*work_year*: El año que mayor frecuencia tiene es 2022. Es decir, mas de la mitad de los datos de salario pertenecena 2022
+*experience_level*: Se ve cómo la mayoria de los ecuestados contaban con bastante experiencia eran expertos (SE), también resaltar que el menor numero de ellos eran directivos.
+*employment_type*: Casi todos ellos estaban presentaban un contrato con dedicación a tiempo completo.
+*company_location*:  También que la mayoría de las compañías tenían su localización en USA. 
+*company_size*: La mayoria de las compañías tenían ente 50 y 250 empleados.
+
+Se procede a hacer un análisis más exhaustivo de los datos y a buscar si existe algúna relación entre las variables del mismo.
+
+```{r}
+boxplot(df$salary_in_usd, 
+        border = "darkblue", 
+        col = "lightblue", 
+        main = "Salary in USD", 
+        las = 1,
+        outcol="darkorange")
+```
+ Observando este diagrama de caja, se obtiene que la mayoría de los empleados tienen un sueldo de 100.000 USD, tener un salario más alto es bastante atípico sobretodo por encima de los 300.000 USD. 
+```{r}
+#ahora se analiza la dependencia del salario con la experiencia de cada empleado 
+df$experience_level_new = factor(df$experience_level, levels=c('EN','MI','SE','EX'))
+```
+
+```{r}
+ggplot(data = df) + 
+geom_line(mapping = aes(x = work_year, y = salary_in_usd), color = "red", stat = "summary", fun = "mean")+
+labs(title="Salario medio de un Data Science en 2020-2022 por nivel de experiencia", x = "Year", y = "Avg Salary in USD", subtitle = "EN-Entry/Junior MI-Mid/Intermediate SE-Senior/Expert EX-Executive/Director")+
+facet_wrap(~experience_level_new)
+```
+ En el gráfico anterior se puede ver el cambio del salario medio en funcion del año y del nivel de experiencia, se observa un comportamiento practicamente lineal para los junior y para el nivel de experiecia intrmdio. Sin embargo para los senior, se aprecia un ligero aumento desde 2021 hasta 2022 y al contrario en los puestos de Ejecutivos
+
+```{r}
+ggplot(data = df) +
+  geom_bar(mapping = aes(x= company_size,  fill = experience_level),
+  stat = "count", position = "dodge")+
+  labs(title = "Nº de empleados por tamaño de compañía", x = "Company Size",subtitle = "EN-Entry/Junior MI-Mid/Intermediate SE-Senior/Expert EX-Executive/Director")+
+  guides(guide_legend(title = "experience_level"))
+```
+ 
+Las empresas de tamaño intermedio cuentan con más empleados cuyo nivel de experiencia es Senior. Las empresas pequeñas son las que cuentan con prácticamente el mismo número de empleados Junior e intermedios. Cómo se había ido percibiendo anteriormente, el menor numero de empleados para todos los tamños de empresa es el nivel de dirección.
+
+
+```{r}
+ggplot(data=df) +
+geom_bar(aes(x = job_title, y = salary_in_usd, fill = company_size), stat = "summary", fun = "mean") +
+    coord_flip() +
+      labs(title="Salario medio de un Data Science por tipo de empleo y tamaño de la compañía", x = "Job Title", y = "Avg Salary in USD")
+```
+Si comparamos el salario medio con el tipo de trabajo ( Job title) y a su vez vemos el tamaño de la empresa, podemos ver una brecha salarial entre los diferentes tipos de trabajo y el tamaño de la empresa. Llama la atención que de algunos jobs solo hay un tamaño de medida (ej: DATA ANALYTICS LEAD), esto puede generar confusiones, ya que los resultados estan sesgados. Si volvemos un poco más arriba dónde se sacó el numero de individuos de cada nivel de la variable job_title, podemos ver que solo hay uno con este tipo de trabajo y así ocurre con varios puestos a diferencia de otros como Research Scientist que tiene 16 personas. Esto genera que los salarios medios no sean representativos cuando sólo hay una persona. 
+
+```{r}
+ggplot(data=df) +
+geom_bar(aes(x = employee_residence, y = salary_in_usd, fill = employee_residence), stat = "summary", fun = "mean") +
+    coord_flip() +
+      labs(title="Salario medio de un Data Science por pais de residencia", x = "Job Title", y = "Avg Salary in USD")
+```
+```{r}
+df %>% 
+  count(employee_residence)
+```
+
+Si analizamos el salario en funcion del pais de residencia, vemos que hay resultados que llaman la atención. Elsueldo más alto se alcanza por un empleado que vive en Malasia frente a los 332 individuos estudiados que residen en USA. Debido a esto, se decide continuar el análisis del salario de un científico de datos solo con los individuos que residen en USA.
+
+```{r}
+df2 <- filter(df, employee_residence == "US")
+df2
+salary_per_employment_type_company_size <- df2 %>% 
+                                  group_by(company_size,employment_type)
+ggplot(data = salary_per_employment_type_company_size,) + geom_col(mapping = aes(x = company_size,y = salary_in_usd, fill= company_size)) + facet_wrap(~employment_type)+labs(title="Salario medio de un Data Science por pais de residencia", x = "Company Size", y = "Avg Salary in USD")
+```
+El diagrama de barras anterior, indica que los empleados que tienen contratos a tiempo completo presentan un salario superior y que dentro de esta categoria, las empresas de  tamaño medio son las que más altos sueldos pagan. Se puede ver que las grandes corporativas ofrecen salarios más bajos. Destacar que sólo aparecen dos tipos de contratos (emplloyment_type) porque hemos filtrado los datos por USA como país de residencia por lo que estos individuos sólo presentan estas dos categorías.
+
+Vemos que hay sueldos que superanlos 300.000 USD/año, vamos a ver que tipo de empleo presentan estos sueldos y el sueldo de una persona con poca experiencia ( EN)
+```{r}
+filter(df2, df2$salary_in_usd >= 300000)
+filter(df2, df2$experience_level == "EN")
+
+```
+Se puede ver cómo los sueldos de científicos de datos que superan los 300.000 USD anuales presentan cargos de ejecutivos, senior o medio con contratos a tiempo completo y en la mayoría de los casos suelen pertenecer a compañias grandes. 
+
+Si analizamos el sueldo para las personas que no tienen mucha experiencia (Junior) vemos que en los tipos de trabajo que tienen los sueldos más altos son los relacionados con el Machine learning en empresas grandes. En promedio el sueldo para una persona con poca experiencia es <=100000.
+
+
+ #####
+Una vez exploradas y observados algunos de los comportamientos de las variables se procede a realizar un analisis estadístico más exhaustivo con la variable sin filtrar por US.
+
+Para hacer más facil el análisis estadistico, vamos a crear una columna nueva donde consideramos 0= salarios <= que 150000 ( recogeran los sueldos más bajos del estudio) y > 150.000 ( dónde recogerá los mejores pagados). Creamos solo estas dos categorías para que la muestra sea másuniforma ya que si recordamos había casos en los que sólo había una persona)
+
+```{r}
+with(df,
+  case_when(
+    salary_in_usd <= "150000"  ~ 0,  # Doble nacionalidad
+    salary_in_usd >= "150000"  ~ 1,  # Española
+    
+  )
+) -> df$salary_binaria
+df
+```
+
+### Test de normalidad para las variables numéricas.
+
+```{r}
+numeric.values <- df %>% dplyr::select(work_year,salary_in_usd)
+
+sapply(sample_n(numeric.values, 607), function(x) round(shapiro.test(x)$p.value,2))
+```
+ Si la H0 (p_valor<=0.05) sería que la variable no proviene de una distribución normal y H1 (>0.05) que si. Se obtiene que ninguna variable numérica proviene de una distribución normal.
+```{r}
+corrplot(cor(numeric.values), method = "number", type="upper")
+```
+ La matriz de correlaciones presenta correlaciones bajas entre las variables numéricas.
+ 
+Creamos un dataframe nuevo eliminando varias columnas, salar_in_usd ( ya que tenemos la columna que creamos salary_binaria), job_title y employee_residence ( estas dops las omitimos porque generan confusión al ser muy sesgadas) para no generar errores en el estudio.
+
+
+```{r}
+df
+df_final <- df[c("work_year","experience_level","employment_type","salary_binaria","company_location","company_size")]
+df_final
+```
+### Test de independencia de las variables categóricas contra la variable objetivo.
+H0= Dependientes
+h1=Independientes
+
+
+```{r}
+chisq.test(table(df$experience_level, df$salary_binaria),simulate.p.value=TRUE)
+chisq.test(table(df$employment_type, df$salary_binaria),simulate.p.value=TRUE)
+chisq.test(table(df$company_location, df$salary_binaria),simulate.p.value=TRUE)
+chisq.test(table(df$company_size, df$salary_binaria),simulate.p.value=TRUE)
+
+```
+De acuerdo con el test de chi-cuadrado, se puede decir que la variable categorica *Employment_type* es independiente, y las demás son variables dependientes de la variable objetivo 
+
+#Conclusiones sobre la EDA
+
+Tras realizar el **análisis exploratorio de datos**, podemos concluir de forma resumida con lo siguiente:
+
+* Las variables numéricas deben **normalizarse**.
+* No hay correlación destacable entre las variables numéricas
+* Sobre los test de independencia, se debería borrar las variables *Employment_type* y*Job_title* en el modelo.
+
+
+A continuación, vamos a modelo de selección de variables basado en stepAIC para corroborar las conclusiones que obtuvimos. 
+
+
+```{r}
+#primero normalizamos las variable numérica
+  df$work_year <- scale(df_final$work_year)
+  
+summary(df_final$work_year)
+```
+
+El dataset contiene muchas variables categóricas, por lo que las tratamos como dummies en el modelo de clasificación. Para ello, creamos un nuevo dtaframe con las variables dummies. Con esto conseguimos de una manera adecuada pasar variables categóricas a numéricas.
+
+
+```{r, warning=FALSE, echo=FALSE}
+df_final <- dummy_cols(df_final, remove_selected_columns = T)
+```
+
+```{r}
+colnames(df_final)
+```
+```{r}
+head(df_final)
+str(df_final)
+```
+Las conclusiones se han expuesto sobre los apartados 6 y 7. Realizamos el modelo de selección de variables. Realizaremos un modelo basado en stepAIC, por lo tanto, debemos definir el modelo mínimo y máximo, en donde, el modelo mínimo será la variable objetivo (Exited) contra sí mismo y, el valor máximo, la variable objetivo contra todas las variables.
+
+```{r}
+fit1 <- glm(salary_binaria ~., data=df_final, family=binomial)
+fit0 <- glm(salary_binaria ~1, data=df_final, family=binomial)
+```
+Implementamos el modelo de selección de variables.
+
+```{r}
+step <- stepAIC(fit0,direction="both",scope=list(upper=fit1,lower=fit0))
+```
+
+Observamos cuáles son las variables escogidas por el modelo de selección de variables.
+
+```{r}
+step$formula
+```
+Podemos ver que la variable que deciamos de eliminar *employment_type*, el modelo se queda con unicamente employment_type_FT.
+
+
+
+
+Seleccionamos únicamente las variables que nos arroja el modelo stepAIC
+
+```{r}
+# Variables stepAIC
+feature.select <- df_final %>% dplyr::select(salary_binaria,company_location_US,company_location_IN,company_location_FR,company_location_GR,company_size_M,company_location_AE,company_location_IQ,company_location_NZ,company_location_UA,company_location_DZ,company_location_IL,company_location_GB,employment_type_FT)
+
+```
+
+Definimos los conuntos X e Y
+
+```{r}
+# X e Y
+X <- feature.select %>% dplyr::select(-salary_binaria)
+Y <- feature.select$salary_binaria
+```
+
+Obtenemos los conjuntos train y test
+
+```{r}
+# TRAIN
+X_Train <- X[0:425, ]
+Y_Train <- Y[0:425]
+
+# TEST
+X_Test <- X[426:nrow(X), ]
+Y_Test <- Y[426:length(Y)]
+```
+
+
+```{r}
+# Se crea un modelo de clasificación basado en **GLM**.
+
+modelo_final <- glm(salary_binaria ~ company_location_US + company_location_IN + 
+    company_location_FR + company_location_GR + company_size_M + 
+    company_location_AE + company_location_IQ + company_location_NZ + 
+    company_location_UA + company_location_DZ + company_location_IL + 
+    company_location_GB + employment_type_FT,
+                    data = df_final,
+                    family = binomial)
+summary(modelo_final)
+```
+
+
+
+
+Se realizan las predicciones sobre el conjunto de test y da las métricas de la matriz de confusión para ver la accuracy del modelo creado
+
+```{r}
+Y_Pred <- as.numeric(predict(modelo_final, newdata=X_Test, type="response")>.5) #♦ todo lo que este entre 0 y 0.5 lo sacará como 0 y todo lo que sea de 0.5 en adelante=1
+
+head(Y_Pred,10)
+```
+```{r}
+head(Y_Test,10)
+```
+
+Hemos predicho que todos tienen un sueldo superior a 150.000 USD/año. Si vemos los Y_test, vemos que las predicciones no tienen un acierto del 100%.
+
+```{r}
+confusionMatrix(as.factor(Y_Pred), as.factor(Y_Test), mode="everything", positive = "0")
+
+```
+
+Comparamos resultados contra todo el modelo sin filtrar variables.
+```{r}
+# X e Y
+X <- df_final %>% dplyr::select(-salary_binaria)
+Y <- df_final$salary_binaria
+
+# TRAIN
+X_Train <- X[0:425, ]
+Y_Train <- Y[0:425]
+
+# TEST
+X_Test <- X[426:nrow(X), ]
+Y_Test <- Y[426:length(Y)]
+
+#  Creamos un modelo de clasificación basado en **GLM**.
+
+mod <- glm(Y_Train~., data = X_Train, family = binomial)
+
+summary(mod)
+
+Y_Pred <- as.numeric(predict(mod, newdata=X_Test, type="response")>.5)
+
+head(Y_Pred)
+
+confusionMatrix(as.factor(Y_Test), as.factor(Y_Pred), mode="everything", positive = "0")
+```
+
+Vemos que los resultados empeoran pero por muy poco, por lo tanto, es ligeramente superior el modelo con las variables filtradas. 
